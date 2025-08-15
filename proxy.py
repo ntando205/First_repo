@@ -1,62 +1,93 @@
-from socket import * import sys
+from socket import *
+from urllib.parse import urlparse
+import sys
+import os
+
 if len(sys.argv) <= 1:
-    print('Usage : "python ProxyServer.py server_ip"\n[server_ip : It is the IP Address Of Proxy Server')
-sys.exit(2)
-# Create a server socket, bind it to a port and start listening 
+    print('Usage : "python ProxyServer.py server_ip"\n[server_ip : The IP Address of the Proxy Server]')
+    sys.exit(2)
+
+# Create server socket, bind it, and listen
 tcpSerSock = socket(AF_INET, SOCK_STREAM)
-# Fill in start.
-# Fill in end.
-while 1:
-# Strat receiving data from the client 
-    print('Ready to serve...')
-    tcpCliSock, addr = tcpSerSock.accept() 
+tcpSerPort = 60003
+tcpSerSock.bind(('', tcpSerPort))
+tcpSerSock.listen(10)
+print("Proxy server is running on port", tcpSerPort)
+
+while True:
+    print('\nReady to serve...')
+    tcpCliSock, addr = tcpSerSock.accept()
     print('Received a connection from:', addr)
-    message = # Fill in start. # Fill in end. 
-    print(message)
-# Extract the filename from the given message 
-    print(message.split()[1])
-    filename = message.split()[1].partition("/")[2] print(filename)
-    fileExist = "false"
-    filetouse = "/" + filename
-    print(filetouse)
+
     try:
-# Check wether the file exist in the cache 
-        f = open(filetouse[1:], "r")
-        outputdata = f.readlines()
-        fileExist = "true"
-# ProxyServer finds a cache hit and generates a response message
-        tcpCliSock.send("HTTP/1.0 200 OK\r\n") 
-        tcpCliSock.send("Content-Type:text/html\r\n")
-# Fill in start.
-# Fill in end.
-        print('Read from cache')
-# Error handling for file not found in cache
-    except IOError:
-        if fileExist == "false":
-# Create a socket on the proxyserver
-        c = # Fill in start. # Fill in end. 
-        hostn = filename.replace("www.","",1)
-        print(hostn)
-    try:
-# Connect to the socket to port 80
-# Fill in start.
-# Fill in end.
-# Create a temporary file on this socket and ask port 80
-        for the file requested by the client
-            fileobj = c.makefile('r', 0)
-            fileobj.write("GET "+"http://" + filename + "HTTP/1.0\n\n")
-# Read the response into buffer
-# Fill in start.
-# Fill in end.
-# Create a new file in the cache for the requested file.
-# Also send the response in the buffer to client socket and the corresponding file in the cache
-            tmpFile = open("./" + filename,"wb") # Fill in start.
-# Fill in end.
-    except:
-        print("Illegal request")
-    else:
-# HTTP response message for file not found # Fill in start.
-# Fill in end.
-# Close the client and the server sockets
-tcpCliSock.close()
-# Fill in start. # Fill in end.
+        message = tcpCliSock.recv(4096).decode()
+        if not message:
+            tcpCliSock.close()
+            continue
+
+        print("Request message:\n", message)
+
+        # Parse the first line
+        request_line = message.splitlines()[0]
+        print("Request line:", request_line)
+        method, url, protocol = request_line.split()
+
+        # Only support GET
+        if method != "GET":
+            print("Unsupported method:", method)
+            tcpCliSock.send("HTTP/1.0 405 Method Not Allowed\r\n\r\n".encode())
+            tcpCliSock.close()
+            continue
+
+        # Parse the URL
+        parsed_url = urlparse(url)
+        hostn = parsed_url.hostname
+        port = parsed_url.port or 80
+        path = parsed_url.path or "/"
+
+        print("Host:", hostn)
+        print("Path:", path)
+
+        # File name to use in cache
+        filename = hostn + path
+        filename = filename.replace("/", "_")
+        filetouse = "./cache/" + filename
+
+        fileExist = os.path.isfile(filetouse)
+
+        if fileExist:
+            # Cache hit
+            print("Cache hit:", filetouse)
+            with open(filetouse, "rb") as f:
+                cached_data = f.read()
+                tcpCliSock.send(b"HTTP/1.0 200 OK\r\n")
+                tcpCliSock.send(b"Content-Type: text/html\r\n\r\n")
+                tcpCliSock.send(cached_data)
+        else:
+            # Cache miss: connect to remote server
+            print("Cache miss. Connecting to", hostn)
+
+            c = socket(AF_INET, SOCK_STREAM)
+            c.connect((hostn, port))
+
+            request = f"GET {path} HTTP/1.0\r\nHost: {hostn}\r\n\r\n"
+            c.send(request.encode())
+
+            if not os.path.exists("./cache"):
+                os.mkdir("./cache")
+
+            with open(filetouse, "wb") as tmpFile:
+                while True:
+                    buff = c.recv(4096)
+                    if not buff:
+                        break
+                    tmpFile.write(buff)
+                    tcpCliSock.send(buff)
+
+            c.close()
+
+    except Exception as e:
+        print("Error:", e)
+        tcpCliSock.send("HTTP/1.0 500 Internal Server Error\r\n\r\n".encode())
+    finally:
+        tcpCliSock.close()
